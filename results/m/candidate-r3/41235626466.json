@@ -1,0 +1,29 @@
+{
+  "attempt": "1",
+  "failing_tests": [
+    "tests.test_portable_lifecycle::test_real_post_worker_finishes_after_runtime_daemon_process_is_killed",
+    "tests.test_prepared_owner_authenticated_cleanup::test_authenticated_delayed_cleanup_ack_precedes_original_child_reap",
+    "tests.test_production_worker_credentials_luna::test_pre_marker_worker_bearer_is_rotated_before_http_start",
+    "tests.test_production_worker_credentials_luna::test_receiptless_worker_bearer_is_rotated_before_http_start",
+    "tests.test_skip_policy::test_no_test_file_skips_by_hand",
+    "tests.test_t6_runtime_boundary::test_server_replace_route_uses_the_daemon_boundary"
+  ],
+  "failing_tests_complete": false,
+  "job_results": {
+    "ci-boundary": "success",
+    "ci-darwin-native": "success",
+    "ci-portability-lifecycle": "failure",
+    "ci-sandbox-process-control": "failure",
+    "ci-typescript-client": "success",
+    "ci-unit": "failure",
+    "ci-windows-realm-publication": "success",
+    "resolve": "success"
+  },
+  "junit_parse_errors": [],
+  "junit_report_count": 10,
+  "ref": "m/candidate-r3",
+  "run_id": "41235626466",
+  "sha": "8f3d1091ada773af63f730f6340226a40e86ecc4",
+  "suite": "ci",
+  "workflow": "Proof dispatch"
+}
