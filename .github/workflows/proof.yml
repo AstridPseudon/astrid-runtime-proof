@@ -1,0 +1,359 @@
+# Generated from astrid-runtime commit 8f3d1091ada773af63f730f6340226a40e86ecc4 .github/workflows; see REPORT.md.
+name: Proof dispatch
+'on':
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Proof branch to test
+        type: string
+        required: true
+        default: m/candidate-r3
+      suite:
+        description: Suite to run
+        type: choice
+        required: true
+        default: ci
+        options:
+        - ci
+        - lanes
+        - windows-journey
+        - all
+permissions:
+  contents: read
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.ref }}
+        persist-credentials: false
+    - id: commit
+      name: Record selected commit
+      run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+    - name: Validate inputs
+      env:
+        PROOF_REF: ${{ inputs.ref }}
+        PROOF_SUITE: ${{ inputs.suite }}
+      run: python -c "import os,sys; sys.exit(0 if os.environ['PROOF_REF'] in ['g/integration','h/integration','m/candidate-r3']
+        and os.environ['PROOF_SUITE'] in ['ci', 'all'] else 'Unsupported ref or suite for this mirror')"
+  ci-windows-realm-publication:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.ref }}
+        persist-credentials: false
+    - name: Verify selected SHA and source workflow
+      shell: bash
+      env:
+        EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
+      run: 'test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+        test "$(git rev-parse HEAD:.github/workflows/ci.yml)" = "69812fc7a0a6a58dc47814959f456aa50e696f62"'
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: pip
+    - run: python -m pip install -e '.[test]'
+    - run: python -m pip install -e packages/python
+    - name: Verify Windows update backup daemon from a selected venv
+      run: python -m pytest -q -rP -m "" tests/test_windows_runtime_launch.py
+      env:
+        PYTEST_ADDOPTS: --junitxml=proof-junit-0.xml
+    - name: Verify native realm creation, ownership, and rollback
+      run: python -m pytest -q tests/test_realm_creation_publication.py tests/test_realm_replacement_publication.py
+        tests/test_platform_windows.py::test_windows_directory_mutex_uses_global_user_scoped_identity tests/test_m1_review.py
+      env:
+        PYTEST_ADDOPTS: --junitxml=proof-junit-1.xml
+    - name: Verify native Windows signal and foreground cleanup paths
+      run: python -m pytest -q -m "" tests/test_platform_signaling.py tests/test_runtime_cli_serve_cleanup.py tests/test_service_stop.py
+      env:
+        PYTEST_ADDOPTS: --junitxml=proof-junit-2.xml
+    - name: Verify Runtime service cleanup receipt contract
+      run: python -m pytest -q tests/test_profile_services.py::test_supervisor_marks_runtime_owned_service_name_after_configured_env
+        tests/test_profile_services.py::test_pack_host_cleanup_receipts_are_bounded_owner_only_and_preserved tests/test_profile_services.py::test_service_cleanup_receipt_history_keeps_latest_64_attempts
+        tests/test_profile_services.py::test_pack_host_cleanup_receipt_refuses_corrupt_history_without_overwriting
+        tests/test_profile_services.py::test_shutdown_retry_publishes_pack_host_cleanup_receipt 'tests/test_profile_services.py::test_invalid_declaration_is_refused[document18]'
+        'tests/test_profile_services.py::test_invalid_declaration_is_refused[document19]'
+      env:
+        PYTEST_ADDOPTS: --junitxml=proof-junit-3.xml
+    - name: Upload JUnit reports
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: proof-junit-ci-windows-realm-publication-single
+        path: proof-junit-*.xml
+        if-no-files-found: ignore
+    needs:
+    - resolve
+    if: ${{ (inputs.suite == 'ci' || inputs.suite == 'all') && needs.resolve.result == 'success' }}
+  ci-unit:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+        - ubuntu-latest
+        - macos-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.ref }}
+        persist-credentials: false
+    - name: Verify selected SHA and source workflow
+      shell: bash
+      env:
+        EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
+      run: 'test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+        test "$(git rev-parse HEAD:.github/workflows/ci.yml)" = "69812fc7a0a6a58dc47814959f456aa50e696f62"'
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: pip
+    - name: Install system media tools
+      if: runner.os == 'Linux'
+      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      shell: bash
+    - name: Install system media tools (macOS)
+      if: runner.os == 'macOS'
+      run: brew install ffmpeg
+    - run: python -m pip install -e '.[test]'
+    - run: python -m pytest -q -n 2
+      env:
+        PYTEST_ADDOPTS: --junitxml=proof-junit-0.xml
+    - name: Upload JUnit reports
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: proof-junit-ci-unit-${{ strategy.job-index }}
+        path: proof-junit-*.xml
+        if-no-files-found: ignore
+    needs:
+    - resolve
+    if: ${{ (inputs.suite == 'ci' || inputs.suite == 'all') && needs.resolve.result == 'success' }}
+  ci-darwin-native:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.ref }}
+        persist-credentials: false
+    - name: Verify selected SHA and source workflow
+      shell: bash
+      env:
+        EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
+      run: 'test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+        test "$(git rev-parse HEAD:.github/workflows/ci.yml)" = "69812fc7a0a6a58dc47814959f456aa50e696f62"'
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: pip
+    - run: brew install ffmpeg
+    - run: python -m pip install -e '.[test]'
+    - run: python -m pytest -q -m darwin_native
+      env:
+        PYTEST_ADDOPTS: --junitxml=proof-junit-0.xml
+    - name: Upload JUnit reports
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: proof-junit-ci-darwin-native-single
+        path: proof-junit-*.xml
+        if-no-files-found: ignore
+    needs:
+    - resolve
+    if: ${{ (inputs.suite == 'ci' || inputs.suite == 'all') && needs.resolve.result == 'success' }}
+  ci-typescript-client:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.ref }}
+        persist-credentials: false
+    - name: Verify selected SHA and source workflow
+      shell: bash
+      env:
+        EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
+      run: 'test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+        test "$(git rev-parse HEAD:.github/workflows/ci.yml)" = "69812fc7a0a6a58dc47814959f456aa50e696f62"'
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+    - run: npm ci
+      working-directory: packages/typescript
+    - run: npm test
+      working-directory: packages/typescript
+    needs:
+    - resolve
+    if: ${{ (inputs.suite == 'ci' || inputs.suite == 'all') && needs.resolve.result == 'success' }}
+  ci-boundary:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.ref }}
+        persist-credentials: false
+    - name: Verify selected SHA and source workflow
+      shell: bash
+      env:
+        EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
+      run: 'test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+        test "$(git rev-parse HEAD:.github/workflows/ci.yml)" = "69812fc7a0a6a58dc47814959f456aa50e696f62"'
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: pip
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+    - run: python -m pip install -e '.[test]'
+    - run: python -m pytest -q tests/test_second_client_e2e.py -m ""
+      env:
+        PYTEST_ADDOPTS: --junitxml=proof-junit-0.xml
+    - name: Upload JUnit reports
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: proof-junit-ci-boundary-single
+        path: proof-junit-*.xml
+        if-no-files-found: ignore
+    needs:
+    - resolve
+    if: ${{ (inputs.suite == 'ci' || inputs.suite == 'all') && needs.resolve.result == 'success' }}
+  ci-sandbox-process-control:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.ref }}
+        persist-credentials: false
+    - name: Verify selected SHA and source workflow
+      shell: bash
+      env:
+        EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
+      run: 'test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+        test "$(git rev-parse HEAD:.github/workflows/ci.yml)" = "69812fc7a0a6a58dc47814959f456aa50e696f62"'
+    - run: sh tests/seccomp/run-suite.sh
+    needs:
+    - resolve
+    if: ${{ (inputs.suite == 'ci' || inputs.suite == 'all') && needs.resolve.result == 'success' }}
+  ci-portability-lifecycle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+        - ubuntu-latest
+        - macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.ref }}
+        persist-credentials: false
+    - name: Verify selected SHA and source workflow
+      shell: bash
+      env:
+        EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
+      run: 'test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+        test "$(git rev-parse HEAD:.github/workflows/ci.yml)" = "69812fc7a0a6a58dc47814959f456aa50e696f62"'
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: pip
+    - run: python -m pip install -e '.[test]'
+    - run: python -m pip install -e packages/python
+    - run: python -m pytest -q -m "" tests/test_platform.py tests/test_platform_signaling.py tests/test_platform_windows.py
+        tests/test_windows_worker_handoff.py tests/test_platform_filesystem.py tests/test_dirfd_windows.py tests/test_windows_filesystem_native.py
+        tests/test_runtime_upgrade.py tests/test_runtime_compact.py tests/test_relocation_plan.py tests/test_local_worker_placement.py::test_activation_acceptance_replay_flushes_record_with_writable_handle
+        tests/test_profile_services.py tests/test_service_stop.py tests/test_m1_review.py tests/test_windows_runtime_sweep.py
+        tests/test_foreground.py tests/test_native_custody.py tests/test_portable_lifecycle.py
+      env:
+        PYTEST_ADDOPTS: --junitxml=proof-junit-0.xml
+    - name: Upload JUnit reports
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: proof-junit-ci-portability-lifecycle-${{ strategy.job-index }}
+        path: proof-junit-*.xml
+        if-no-files-found: ignore
+    needs:
+    - resolve
+    if: ${{ (inputs.suite == 'ci' || inputs.suite == 'all') && needs.resolve.result == 'success' }}
+  summary:
+    if: ${{ always() }}
+    needs:
+    - resolve
+    - ci-windows-realm-publication
+    - ci-unit
+    - ci-darwin-native
+    - ci-typescript-client
+    - ci-boundary
+    - ci-sandbox-process-control
+    - ci-portability-lifecycle
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.ref }}
+        persist-credentials: false
+    - name: Download available JUnit reports
+      uses: actions/download-artifact@v4
+      with:
+        pattern: proof-junit-*
+        path: ${{ runner.temp }}/proof-junit
+    - name: Publish result JSON
+      shell: bash
+      env:
+        PROOF_REF: ${{ inputs.ref }}
+        PROOF_SUITE: ${{ inputs.suite }}
+        PROOF_NEEDS: ${{ toJSON(needs) }}
+        PROOF_TOKEN: ${{ github.token }}
+      run: "python <<'PYTHON'\nimport base64, glob, json, os, pathlib, subprocess, tempfile, xml.etree.ElementTree\
+        \ as ET\n\ndef run(*args, **kwargs):\n    return subprocess.run(args, check=True, **kwargs)\n\nrepo = os.environ['GITHUB_REPOSITORY']\n\
+        if repo not in {'AstridPseudon/astrid-agent-proof', 'AstridPseudon/astrid-runtime-proof'}:\n    raise SystemExit('Unexpected\
+        \ repository')\nref = os.environ['PROOF_REF']\nif ref not in {'g/integration', 'h/integration', 'm/candidate-r3'}:\n\
+        \    raise SystemExit('Unexpected ref')\nneeds = json.loads(os.environ['PROOF_NEEDS'])\nresults = {name:\
+        \ data['result'] for name, data in needs.items()}\nsha = needs.get('resolve', {}).get('outputs', {}).get('sha',\
+        \ '')\nreports = sorted(glob.glob(os.path.join(os.environ['RUNNER_TEMP'], 'proof-junit', '**', '*.xml'),\
+        \ recursive=True))\nfailures, parse_errors = set(), []\nfor report in reports:\n    try:\n        root =\
+        \ ET.parse(report).getroot()\n        for case in root.iter():\n            if case.tag.rsplit('}', 1)[-1]\
+        \ == 'testcase' and any(c.tag.rsplit('}', 1)[-1] in ('failure', 'error') for c in case):\n             \
+        \   failures.add('::'.join(x for x in (case.get('classname'), case.get('name')) if x))\n    except (ET.ParseError,\
+        \ OSError):\n        parse_errors.append(os.path.relpath(report, os.environ['RUNNER_TEMP']))\nsummary =\
+        \ {'workflow': os.environ['GITHUB_WORKFLOW'], 'ref': ref, 'sha': sha,\n           'suite': os.environ['PROOF_SUITE'],\
+        \ 'run_id': os.environ['GITHUB_RUN_ID'],\n           'attempt': os.environ['GITHUB_RUN_ATTEMPT'], 'job_results':\
+        \ results,\n           'failing_tests': sorted(failures), 'junit_report_count': len(reports),\n        \
+        \   'junit_parse_errors': parse_errors, 'failing_tests_complete': False}\nenv = os.environ.copy()\ntoken\
+        \ = env.pop('PROOF_TOKEN')\nenv.update(GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='http.https://github.com/.extraheader',\n\
+        \           GIT_CONFIG_VALUE_0='AUTHORIZATION: basic ' + base64.b64encode(('x-access-token:' + token).encode()).decode())\n\
+        with tempfile.TemporaryDirectory(prefix='proof-results-') as directory:\n    run('git', 'init', '-q', directory)\n\
+        \    def git(*args, **kwargs):\n        return run('git', '-C', directory, *args, env=env, **kwargs)\n \
+        \   git('config', 'user.name', 'github-actions[bot]')\n    git('config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com')\n\
+        \    git('remote', 'add', 'mirror', 'https://github.com/' + repo + '.git')\n    probe = subprocess.run(['git',\
+        \ '-C', directory, 'ls-remote', '--exit-code', '--heads', 'mirror', 'results'], env=env, stdout=subprocess.DEVNULL)\n\
+        \    if probe.returncode == 0:\n        git('fetch', '-q', 'mirror', 'refs/heads/results')\n        git('checkout',\
+        \ '-q', '-B', 'publish', 'FETCH_HEAD')\n    elif probe.returncode == 2:\n        git('checkout', '-q', '--orphan',\
+        \ 'publish')\n    else:\n        raise SystemExit('Could not inspect results branch')\n    path = pathlib.Path(directory,\
+        \ 'results', ref, os.environ['GITHUB_RUN_ID'] + '.json')\n    path.parent.mkdir(parents=True, exist_ok=True)\n\
+        \    path.write_text(json.dumps(summary, indent=2, sort_keys=True) + '\\n')\n    git('add', str(path.relative_to(directory)))\n\
+        \    git('commit', '-qm', 'Record proof run ' + os.environ['GITHUB_RUN_ID'])\n    for attempt in range(5):\n\
+        \        pushed = subprocess.run(['git', '-C', directory, 'push', '-q', 'mirror', 'HEAD:refs/heads/results'],\
+        \ env=env)\n        if pushed.returncode == 0:\n            break\n        probe = subprocess.run(['git',\
+        \ '-C', directory, 'fetch', '-q', 'mirror', 'refs/heads/results'], env=env)\n        if probe.returncode\
+        \ != 0:\n            raise SystemExit('Could not fetch results after failed push')\n        # --root also\
+        \ handles the first publisher racing to create the branch.\n        ancestor = subprocess.run(['git', '-C',\
+        \ directory, 'merge-base', 'HEAD', 'FETCH_HEAD'], env=env, stdout=subprocess.DEVNULL)\n        if ancestor.returncode\
+        \ == 0:\n            git('rebase', 'FETCH_HEAD')\n        elif ancestor.returncode == 1:\n            git('rebase',\
+        \ '--onto', 'FETCH_HEAD', '--root')\n        else:\n            raise SystemExit('Could not determine results\
+        \ ancestry')\n    else:\n        raise SystemExit('Could not publish results after five attempts')\nPYTHON\n"
